@@ -179,6 +179,55 @@ impl ImageData {
             None => "bin".to_string(),
         }
     }
+
+    /// Decodes this image's pixel data into a [`DynamicImage`].
+    ///
+    /// Handles both storage carriers: the `jpeg` field (any encoded format,
+    /// decoded via the `image` crate) and the `bits` field (LZW-compressed
+    /// BGRA bitmap data). Returns `None` for link/screenshot placeholders that
+    /// carry no pixel data, and an error if decoding fails.
+    ///
+    /// This is the shared decode primitive used by size analysis and any
+    /// resize/re-encode operation.
+    pub fn decode(&self) -> io::Result<Option<DynamicImage>> {
+        if let Some(jpeg) = &self.jpeg {
+            // Decode with limits lifted. VPX embeds 8K Blender VLM lightmap
+            // atlases (EXR/HDR), which decode to ~1 GB of RGBA float and trip
+            // the image crate's default anti-decompression-bomb limit. These
+            // are legitimate table assets, so we must accept them.
+            let mut reader = image::ImageReader::new(std::io::Cursor::new(&jpeg.data))
+                .with_guessed_format()
+                .map_err(|e| io::Error::other(format!("sniff {}: {e}", self.name)))?;
+            reader.no_limits();
+            let img = reader
+                .decode()
+                .map_err(|e| io::Error::other(format!("decode {}: {e}", self.name)))?;
+            Ok(Some(img))
+        } else if let Some(bits) = &self.bits {
+            Ok(Some(vpx_image_to_dynamic_image(
+                &bits.lzw_compressed_data,
+                self.width,
+                self.height,
+            )?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Number of bytes this image occupies in the VPX stream payload, i.e. the
+    /// encoded/compressed size that actually contributes to the file size.
+    ///
+    /// For `jpeg`-carried images this is the encoded byte length; for `bits`
+    /// images it is the LZW-compressed length.
+    pub fn stored_len(&self) -> usize {
+        if let Some(jpeg) = &self.jpeg {
+            jpeg.data.len()
+        } else if let Some(bits) = &self.bits {
+            bits.lzw_compressed_data.len()
+        } else {
+            0
+        }
+    }
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]

@@ -80,6 +80,8 @@ rand = { version = "0.10.0" }
 walkdir = "2.5.0"
 testresult = "0.4.1"
 fake = { version = "5.1.0", features = ["derive"] }
+# Used by the image_survey example to fork-join per-image encode work.
+rayon = "1.11.0"
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 testdir = "0.10.0"
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
